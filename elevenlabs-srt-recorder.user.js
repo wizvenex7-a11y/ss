@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         ElevenLabs Word SRT Recorder
 // @namespace    venex.srt
-// @version      2.0
-// @description  Captures the blue (#0447ff) word during playback with real time and saves a word-by-word SRT
+// @version      2.1
+// @description  Tracks #0447ff (current) and #121213 (played) words during playback with real time and saves a word-by-word SRT
 // @match        https://elevenlabs.io/*
 // @match        https://*.elevenlabs.io/*
 // @run-at       document-start
@@ -64,37 +64,65 @@
 
   function onPlay() {
     if (recording) return;
-    words = []; lastEl = null; recording = true; lastSeen = performance.now();
+    words = []; lastIdx = -1; spans = []; recording = true; lastSeen = performance.now();
     renderAll(); setStatus('Recording...', '#7aa2ff');
     requestAnimationFrame(loop);
   }
 
-  function findBlue() {
+  const DARK = 'rgb(18, 18, 19)';          // #121213 = already spoken
+  const isHit = c => c === BLUE || c === DARK;
+
+  // All transcript word spans in order (leaf spans that are blue, dark, or another text color)
+  function wordSpans() {
+    const out = [];
     for (const s of document.querySelectorAll('span')) {
       if (s.children.length || !s.textContent.trim()) continue;
       if (ui && ui.root.contains(s)) continue;
-      const st = getComputedStyle(s);
-      if (st.color === BLUE || st.backgroundColor === BLUE) return s;
+      out.push(s);
     }
-    return null;
+    // keep only the transcript container: the parent that holds the blue/dark word
+    const ref = out.find(s => isHit(getComputedStyle(s).color) && getComputedStyle(s).color === BLUE) ||
+                out.find(s => getComputedStyle(s).color === DARK);
+    if (!ref) return [];
+    let box = ref.parentElement;
+    while (box && box.querySelectorAll('span').length < 20 && box.parentElement) box = box.parentElement;
+    return out.filter(s => box.contains(s));
+  }
+
+  // progress = index of last word that is blue (current) or #121213 (played)
+  let spans = [], lastIdx = -1, lastT = 0, rescan = 0;
+  function progress() {
+    if (!spans.length || performance.now() - rescan > 1500) { spans = wordSpans(); rescan = performance.now(); }
+    let idx = -1, blueIdx = -1;
+    for (let i = 0; i < spans.length; i++) {
+      const c = getComputedStyle(spans[i]).color;
+      if (c === BLUE) { blueIdx = i; idx = i; }
+      else if (c === DARK) idx = i;
+    }
+    return { idx: blueIdx >= 0 ? blueIdx : idx, blue: blueIdx >= 0 };
   }
 
   function loop() {
     if (!recording) return;
     const t = now();
-    const el = findBlue();
-    if (t !== null && el && el !== lastEl) {
+    const p = progress();
+    if (t !== null && p.idx > lastIdx) {
+      // words skipped between frames get evenly spread times
+      const from = lastIdx + 1, n = p.idx - from + 1;
+      const t0 = words.length ? Math.max(lastT, words[words.length - 1].start) : t;
+      for (let i = 0; i < n; i++) {
+        const st = n === 1 ? t : t0 + (t - t0) * (i + 1) / n;
+        const prev = words[words.length - 1];
+        if (prev && prev.end <= prev.start) prev.end = st;
+        const w = { text: spans[from + i].textContent.trim(), start: st, end: st };
+        words.push(w); addRow(w, words.length);
+      }
+      lastIdx = p.idx;
+    } else if (t !== null && !p.blue && words.length) {
       const prev = words[words.length - 1];
-      if (prev && prev.end <= prev.start) prev.end = t;
-      const w = { text: el.textContent.trim(), start: t, end: t };
-      words.push(w); addRow(w, words.length);
-      lastEl = el;
-    } else if (t !== null && !el && lastEl) {
-      const prev = words[words.length - 1];
-      if (prev.end <= prev.start) prev.end = t;
-      lastEl = null;
+      if (prev.end <= prev.start && lastIdx >= 0) prev.end = t;
     }
-    if (el || t !== null) lastSeen = performance.now();
+    if (t !== null) { lastT = t; lastSeen = performance.now(); }
     const ended = [...media].some(m => m.ended) || (wa && wa.stopped && t === null);
     if (words.length && (ended || performance.now() - lastSeen > IDLE_FINISH_MS)) return finish();
     setStatus(`Recording... ${words.length} words | ${t !== null ? short(t) : 'paused'} | src: ${source}`, '#7aa2ff');
