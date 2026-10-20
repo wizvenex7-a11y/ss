@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ElevenLabs Word SRT Recorder
 // @namespace    venex.srt
-// @version      2.1
+// @version      2.2
 // @description  Tracks #0447ff (current) and #121213 (played) words during playback with real time and saves a word-by-word SRT
 // @match        https://elevenlabs.io/*
 // @match        https://*.elevenlabs.io/*
@@ -91,8 +91,29 @@
 
   // progress = index of last word that is blue (current) or #121213 (played)
   let spans = [], lastIdx = -1, lastT = 0, rescan = 0;
+  // App editor page (elevenlabs.io/app/speech-to-text): <span data-type="word" class="text-foreground|text-secondary">
+  function appSpans() {
+    return [...document.querySelectorAll('span[data-type="word"]')]
+      .filter(s => s.textContent.trim() && !(ui && ui.root.contains(s)));
+  }
+  const appPlayed = s => s.classList.contains('text-foreground') || /text-shadow/.test(s.className) ||
+    isHit(getComputedStyle(s).color);
+  let appMode = false;
   function progress() {
-    if (!spans.length || performance.now() - rescan > 1500) { spans = wordSpans(); rescan = performance.now(); }
+    if (!spans.length || performance.now() - rescan > 1500) {
+      const a = appSpans();
+      appMode = a.length > 0;
+      spans = appMode ? a : wordSpans();
+      rescan = performance.now();
+    }
+    if (appMode) {
+      let idx = -1, act = false;
+      for (let i = 0; i < spans.length; i++) {
+        if (/text-shadow/.test(spans[i].className)) { idx = i; act = true; break; }
+        if (appPlayed(spans[i])) idx = i;
+      }
+      return { idx, blue: act || idx >= 0 };
+    }
     let idx = -1, blueIdx = -1;
     for (let i = 0; i < spans.length; i++) {
       const c = getComputedStyle(spans[i]).color;
@@ -125,7 +146,7 @@
     if (t !== null) { lastT = t; lastSeen = performance.now(); }
     const ended = [...media].some(m => m.ended) || (wa && wa.stopped && t === null);
     if (words.length && (ended || performance.now() - lastSeen > IDLE_FINISH_MS)) return finish();
-    setStatus(`Recording... ${words.length} words | ${t !== null ? short(t) : 'paused'} | src: ${source}`, '#7aa2ff');
+    setStatus(`Recording... ${words.length} words | ${t !== null ? short(t) : 'paused'} | src: ${source}${appMode ? ' | app' : ''}`, '#7aa2ff');
     requestAnimationFrame(loop);
   }
 
