@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Studio 60FPS Uploader</title>
+  <link rel="stylesheet" href="ui.css">
+</head>
+<body class="popup">
+  <header class="brand">
+    <img src="icons/icon48.png" alt="" width="32" height="32">
+    <div>
+      <h1>Studio 60FPS Uploader</h1>
+      <p>Works on TikTok Studio upload</p>
+    </div>
+  </header>
+
+  <label class="toggle">
+    <input type="checkbox" id="autoPrepare">
+    <span>
+      <strong>Auto-prepare uploads</strong>
+      <small>Optimize the MP4 before TikTok receives it</small>
+    </span>
+  </label>
+
+  <label class="toggle">
+    <input type="checkbox" id="stripMetadata">
+    <span>
+      <strong>Remove metadata</strong>
+      <small>Strip editor and device tags</small>
+    </span>
+  </label>
+
+  <button type="button" id="openTool" class="primary">Open MP4 tool</button>
+  <p class="hint">Everything runs on your computer. Nothing is sent anywhere.</p>
+  <script src="popup.js"></script>
+</body>
+</html>

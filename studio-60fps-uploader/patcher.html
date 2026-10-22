@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MP4 tool - Studio 60FPS Uploader</title>
+  <link rel="stylesheet" href="ui.css">
+</head>
+<body class="tool">
+  <main>
+    <header class="brand">
+      <img src="icons/icon48.png" alt="" width="40" height="40">
+      <div>
+        <h1>MP4 tool</h1>
+        <p>Check and prepare a video for TikTok, then download it.</p>
+      </div>
+    </header>
+
+    <label class="drop" id="drop">
+      <input type="file" id="file" accept="video/mp4,video/quicktime,.mp4,.mov,.m4v">
+      <strong>Drop an MP4 here</strong>
+      <span>or click to choose a file</span>
+    </label>
+
+    <section id="result" class="card" hidden>
+      <h2 id="fileName"></h2>
+      <dl id="rows" class="rows"></dl>
+      <label class="toggle">
+        <input type="checkbox" id="stripMetadata" checked>
+        <span><strong>Remove metadata</strong></span>
+      </label>
+      <button type="button" id="prepare" class="primary">Prepare and download</button>
+      <ul id="changes" class="changes"></ul>
+    </section>
+
+    <p id="error" class="error" role="alert" hidden></p>
+  </main>
+  <script src="mp4.js"></script>
+  <script src="patcher.js"></script>
+</body>
+</html>

@@ -1,0 +1,27 @@
+{
+  "manifest_version": 3,
+  "name": "Studio 60FPS Uploader",
+  "version": "1.0.0",
+  "description": "Prepares MP4 videos for TikTok Studio: checks 60 fps, 1080p and bitrate, moves the index to the front and strips metadata, all locally.",
+  "permissions": ["storage"],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Studio 60FPS Uploader",
+    "default_icon": { "16": "icons/icon16.png", "32": "icons/icon32.png", "48": "icons/icon48.png", "128": "icons/icon128.png" }
+  },
+  "icons": { "16": "icons/icon16.png", "32": "icons/icon32.png", "48": "icons/icon48.png", "128": "icons/icon128.png" },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.tiktok.com/tiktokstudio/*",
+        "https://www.tiktok.com/creator-center/*",
+        "https://www.tiktok.com/creator*",
+        "https://www.tiktok.com/upload*"
+      ],
+      "js": ["mp4.js", "content.js"],
+      "css": ["content.css"],
+      "run_at": "document_idle",
+      "all_frames": true
+    }
+  ]
+}
