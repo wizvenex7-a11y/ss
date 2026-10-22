@@ -140,6 +140,7 @@ def is_rtl(text):
 @lru_cache(maxsize=4096)
 def shape(text):
     """Join Arabic letters and reorder for right-to-left display (one line)."""
+    text = strip_emoji(text) if EMOJI_RE.search(text) else text
     if not is_rtl(text):
         return text
     return get_display(RESHAPER.reshape(text))
@@ -280,9 +281,42 @@ class EmojiStore:
             except Exception:
                 img = None
         if img is None:
+            img = self.from_color_font(emoji)
+            if img is not None:
+                img.save(path)
+        if img is None:
             print(f"[!] emoji {emoji!r} could not be downloaded, skipping it")
         self._base[emoji] = img
         return img
+
+    COLOR_FONTS = [
+        (r"C:\Windows\Fonts\seguiemj.ttf", 160),
+        ("/System/Library/Fonts/Apple Color Emoji.ttc", 160),
+        ("/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf", 109),
+        ("/usr/share/fonts/noto/NotoColorEmoji.ttf", 109),
+    ]
+
+    def from_color_font(self, emoji):
+        """Offline fallback: draw the emoji in its own colors with the system color-emoji font."""
+        for path, size in self.COLOR_FONTS:
+            if not os.path.exists(path):
+                continue
+            try:
+                font = ImageFont.truetype(path, size)
+                canvas = Image.new("RGBA", (size * 3, size * 3), (0, 0, 0, 0))
+                ImageDraw.Draw(canvas).text((size * 1.5, size * 1.5), emoji, font=font,
+                                            anchor="mm", embedded_color=True)
+                box = canvas.getbbox()
+                if not box:
+                    continue
+                pic = canvas.crop(box)
+                side = max(pic.size)
+                square = Image.new("RGBA", (side, side), (0, 0, 0, 0))
+                square.paste(pic, ((side - pic.width) // 2, (side - pic.height) // 2))
+                return square.resize((512, 512), Image.LANCZOS)
+            except Exception:
+                continue
+        return None
 
     def get(self, emoji, size, alpha=1.0):
         size = max(4, int(size) // 4 * 4)
