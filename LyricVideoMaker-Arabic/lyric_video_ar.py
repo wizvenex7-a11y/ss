@@ -4,7 +4,7 @@ Arabic kinetic-typography lyric video from an SRT file, with big animated emoji.
 (Pillow frames -> ffmpeg H.264)
 
 Default output: YouTube 1920x1080 (16:9), 60 fps, H.264 High, constant 20 Mbps,
-AAC 256 kbps 48 kHz. --quality 720p | fhd | 2k | 4k, --format youtube | tiktok.
+AAC 256 kbps 48 kHz. Always 16:9; --quality 720p | fhd | 2k | 4k sets the size.
 Picking a song auto-selects the .srt with the same name in that folder.
 
 Usage (Windows): double-click "Make Arabic Lyric Video.bat" and pick the MP3.
@@ -14,7 +14,7 @@ Usage (command line):
     python lyric_video_ar.py                                       # opens file pickers
     python lyric_video_ar.py --srt song.srt --audio song.mp3
     python lyric_video_ar.py --srt song.srt --audio song.mp3 --preview
-    python lyric_video_ar.py --srt song.srt --palette gold --format tiktok
+    python lyric_video_ar.py --srt song.srt --palette gold --quality 4k
 
 Arabic text is shaped (joined letters) and laid out right-to-left automatically.
 Mixed Arabic + English + numbers in one line is supported.
@@ -866,16 +866,12 @@ def ffmpeg_command(ffmpeg, args, duration):
     ]
 
 
-FORMATS = {
-    "tiktok": (1080, 1920),
-    "youtube": (1920, 1080),
-}
-
+# Always 16:9. quality: (width, height, bitrate)
 QUALITIES = {
-    "720p": (2 / 3, "10M"),
-    "fhd": (1.0, "20M"),
-    "2k": (4 / 3, "40M"),
-    "4k": (2.0, "60M"),
+    "720p": (1280, 720, "10M"),
+    "fhd": (1920, 1080, "20M"),
+    "2k": (2560, 1440, "40M"),
+    "4k": (3840, 2160, "60M"),
 }
 
 # name: (label, dark background/text, light background/text)
@@ -949,8 +945,8 @@ def pick_files(args):
     root.attributes("-topmost", True)
     if not args.audio:
         args.audio = filedialog.askopenfilename(
-            title="1/2  Choose the song (MP3)",
-            filetypes=[("Audio", "*.mp3 *.wav *.m4a *.aac *.flac *.ogg"), ("All files", "*.*")],
+            title="1/2  Choose the song (MP3 or MP4)",
+            filetypes=[("Audio or video (MP3, MP4)", "*.mp3 *.mp4"), ("MP3 audio", "*.mp3"), ("MP4 video", "*.mp4")],
         ) or None
         if not args.audio:
             sys.exit("No song chosen.")
@@ -965,7 +961,7 @@ def pick_files(args):
         args.srt = filedialog.askopenfilename(
             title="2/2  Choose the lyrics (SRT)",
             initialdir=str(song.parent),
-            filetypes=[("Subtitles", "*.srt"), ("All files", "*.*")],
+            filetypes=[("SRT subtitles", "*.srt")],
         ) or None
         if not args.srt:
             sys.exit("No SRT chosen.")
@@ -981,16 +977,13 @@ def main():
     here = Path(__file__).resolve().parent
     parser = argparse.ArgumentParser(description="Arabic SRT -> kinetic typography lyric video with animated emoji.")
     parser.add_argument("--srt", help="lyrics subtitle file (.srt); a file picker opens if omitted")
-    parser.add_argument("--audio", help="song file (mp3/wav/m4a); sets the video length")
+    parser.add_argument("--audio", help="song file (.mp3 or .mp4, its audio is used); sets the video length")
     parser.add_argument("--out", help="output .MKV (default: <song name>-<palette>-<format>-<size>-<fps>fps.MKV)")
-    parser.add_argument("--format", choices=sorted(FORMATS), default="youtube",
-                        help="youtube = 1920x1080 (16:9, default), tiktok = 1080x1920 (9:16)")
     parser.add_argument("--width", type=int, help="override width")
     parser.add_argument("--height", type=int, help="override height")
     parser.add_argument("--quality", choices=list(QUALITIES), default="fhd",
                         help="720p (10M), fhd = 1080p (20M), 2k = 1440p (40M), 4k = 2160p (60M)")
     parser.add_argument("--fps", type=int, default=60, help="30 or 60 (default 60)")
-    parser.add_argument("--no-quality", action="store_true", help="skip the TikTok quality pass")
     parser.add_argument("--original-emoji", action="store_true",
                         help="keep emoji in their own colors (default: same color as the lyrics)")
     parser.add_argument("--palette", choices=list(PALETTES) + ["custom"],
@@ -1011,11 +1004,8 @@ def main():
 
     pick_files(args)
     resolve_colors(args)
-    default_w, default_h = FORMATS[args.format]
-    scale, quality_bitrate = QUALITIES[args.quality]
-    default_w, default_h = round(default_w * scale / 2) * 2, round(default_h * scale / 2) * 2
-    if not args.bitrate and not args.preview:
-        args.bitrate = quality_bitrate if args.fps > 30 else f"{int(quality_bitrate[:-1]) * 3 // 5}M"
+    default_w, default_h, quality_bitrate = QUALITIES[args.quality]
+    args.bitrate = args.bitrate or quality_bitrate
     args.width = args.width or default_w
     args.height = args.height or default_h
     if args.preview:
@@ -1023,7 +1013,7 @@ def main():
     if args.fps not in (30, 60):
         sys.exit("--fps must be 30 or 60")
     base = Path(args.audio or args.srt)
-    kind = f"{args.format}-preview" if args.preview else f"{args.format}-{args.width}x{args.height}-{args.fps}fps"
+    kind = "preview" if args.preview else f"{args.width}x{args.height}-{args.fps}fps"
     args.out = args.out or str(base.with_name(f"{base.stem}-{args.palette}-{kind}.MKV"))
 
     fonts = ensure_fonts(Path(args.fonts))
@@ -1074,31 +1064,10 @@ def main():
         sys.exit("ffmpeg failed (see error above)")
     print(f"\r  100.0%\nRendered: {args.out}")
     final = Path(args.out)
-    if not args.no_quality:
-        final = quality_pass(final)
     print(f"\n[+] Finished. Output saved to:\n    {final.resolve()}")
     if os.environ.get("LYRIC_OUT_FILE"):
         Path(os.environ["LYRIC_OUT_FILE"]).write_text(str(final.resolve()), encoding="utf-8")
 
-
-def quality_pass(rendered):
-    """Run the bundled tiktok_quality container pass and keep only its output."""
-    sys.path.insert(0, str(Path(__file__).resolve().parent))
-    try:
-        from tiktok_quality import transform
-    except ImportError:
-        print("[!] tiktok_quality folder missing next to lyric_video_ar.py, keeping normal video.")
-        return rendered
-    final = rendered.with_name(rendered.stem + " - high tiktok.MKV")
-    print("\nRunning TikTok quality pass...")
-    try:
-        transform(str(rendered), str(final), multiplier=10)
-    except (Exception, SystemExit) as exc:
-        print(f"[!] Quality pass failed ({exc}), keeping normal video.")
-        final.unlink(missing_ok=True)
-        return rendered
-    rendered.unlink()
-    return final
 
 
 if __name__ == "__main__":

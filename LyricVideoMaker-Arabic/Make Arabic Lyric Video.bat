@@ -53,37 +53,26 @@ if errorlevel 1 (
 echo [ok] packages ready
 echo.
 
-echo Choose platform  (auto YouTube in 5 s):
-echo   1 = YouTube: 1920x1080 (16:9)  [default]
-echo   2 = TikTok, Reels or Shorts: 1080x1920 (9:16)
+echo Video is always 16:9. Choose size:
+echo   1 = 720p   1280x720   (10 Mbps, fastest)
+echo   2 = 1080p  1920x1080  (20 Mbps)
+echo   3 = 2K     2560x1440  (40 Mbps)
+echo   4 = 4K     3840x2160  (60 Mbps, slowest)
 echo.
-choice /c 12 /n /t 5 /d 1 /m "Press 1 or 2: "
-if errorlevel 2 (
-    set "FORMAT=tiktok"
-) else (
-    set "FORMAT=youtube"
-)
-echo [ok] %FORMAT%
-echo.
-
-echo Choose quality  (auto FHD in 5 s):
-echo   1 = 720p        (10 Mbps, fastest)
-echo   2 = FHD 1080p   (20 Mbps)  [default]
-echo   3 = 2K  1440p   (40 Mbps)
-echo   4 = 4K  2160p   (60 Mbps, slowest)
-echo.
-choice /c 1234 /n /t 5 /d 2 /m "Press 1, 2, 3 or 4: "
+choice /c 1234 /n /m "Press 1, 2, 3 or 4: "
 set "QUALITY=720p"
-if errorlevel 2 set "QUALITY=fhd"
-if errorlevel 3 set "QUALITY=2k"
-if errorlevel 4 set "QUALITY=4k"
-echo [ok] %QUALITY%, always 60 fps
+set "SIZE=1280x720"
+if errorlevel 2 (set "QUALITY=fhd" & set "SIZE=1920x1080")
+if errorlevel 3 (set "QUALITY=2k" & set "SIZE=2560x1440")
+if errorlevel 4 (set "QUALITY=4k" & set "SIZE=3840x2160")
+echo [ok] 16:9 %SIZE%, 60 fps
 echo.
 
-echo A window will open: choose the song (MP3).
-echo The SRT with the same name in that folder is picked automatically.
+echo A window will open: choose the song (MP3 or MP4).
+echo The .srt with the same name in that folder is picked automatically,
+echo otherwise a second window asks for the .srt file.
 echo.
-%PY% "%SCRIPT%" --ffmpeg "%FFMPEG_DIR%" --format %FORMAT% --fps 60 --quality %QUALITY% %*
+%PY% "%SCRIPT%" --ffmpeg "%FFMPEG_DIR%" --fps 60 --quality %QUALITY% %*
 if errorlevel 1 (
     echo.
     echo [x] Render failed. See the message above.
