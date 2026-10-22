@@ -318,16 +318,29 @@ class EmojiStore:
                 continue
         return None
 
-    def get(self, emoji, size, alpha=1.0):
+    @staticmethod
+    def tinted(img, color):
+        """Recolor the emoji in the lyric color, keeping its shape and a little shading."""
+        color = ImageColor.getrgb(color) if isinstance(color, str) else tuple(color[:3])
+        shade = img.convert("L").point(lambda v: 150 + v * 105 // 255)
+        layers = [Image.new("L", img.size, c) for c in color]
+        rgb = Image.merge("RGB", [ImageChops.multiply(layer, shade) for layer in layers])
+        out = rgb.convert("RGBA")
+        out.putalpha(img.getchannel("A"))
+        return out
+
+    def get(self, emoji, size, alpha=1.0, tint=None):
         size = max(4, int(size) // 4 * 4)
         a = round(clamp(alpha), 1)
-        key = (emoji, size, a)
+        key = (emoji, size, a, tint if tint is None else tuple(tint) if not isinstance(tint, str) else tint)
         if key not in self._sized:
             base = self.base(emoji)
             if base is None:
                 self._sized[key] = None
             else:
                 img = base.resize((size, size), Image.LANCZOS)
+                if tint is not None:
+                    img = self.tinted(img, tint)
                 if a < 1:
                     img.putalpha(img.getchannel("A").point(lambda v: int(v * a)))
                 if len(self._sized) > 3000:
@@ -569,6 +582,8 @@ class Renderer:
         self.fonts = fonts
         self.light, self.dark = light, dark
         self.emoji = emojis
+        self.original_emoji = False
+        self.emoji_tint = None
         self.ghost_room = int(60 * self.u * 8)
         self._ghost, self._giant, self._script, self._wrap = {}, {}, {}, {}
         self.cy = height / 2
@@ -589,6 +604,7 @@ class Renderer:
     def frame(self, scene, t):
         bg, fg = (self.dark, self.light) if scene.dark else (self.light, self.dark)
         img = Image.new("RGB", (self.W, self.H), bg)
+        self.emoji_tint = None if self.original_emoji else fg
         has_emoji = bool(scene.emojis) and scene.mode != "emoji"
         if has_emoji:
             self.cy = self.H * (0.6 if self.portrait else 0.62)
@@ -764,7 +780,7 @@ class Renderer:
 
     # --- emoji
     def paste_emoji(self, img, emoji, cx, cy, size, angle=0.0, alpha=1.0):
-        pic = self.emoji.get(emoji, size, alpha)
+        pic = self.emoji.get(emoji, size, alpha, getattr(self, "emoji_tint", None))
         if pic is None:
             return
         if abs(angle) > 0.5:
@@ -975,6 +991,8 @@ def main():
                         help="720p (10M), fhd = 1080p (20M), 2k = 1440p (40M), 4k = 2160p (60M)")
     parser.add_argument("--fps", type=int, default=60, help="30 or 60 (default 60)")
     parser.add_argument("--no-quality", action="store_true", help="skip the TikTok quality pass")
+    parser.add_argument("--original-emoji", action="store_true",
+                        help="keep emoji in their own colors (default: same color as the lyrics)")
     parser.add_argument("--palette", choices=list(PALETTES) + ["custom"],
                         help="color set (a menu opens if omitted): " + ", ".join(PALETTES))
     parser.add_argument("--light", help="light color hex, overrides the palette")
@@ -1022,6 +1040,7 @@ def main():
         for _, e in scene.emojis:
             emojis.base(e)
     kinetic = Renderer(args.width, args.height, fonts, light, dark, emojis)
+    kinetic.original_emoji = args.original_emoji
 
     def scene_at(t):
         return next((s for s in timeline if s.start <= t < s.end), timeline[-1])
