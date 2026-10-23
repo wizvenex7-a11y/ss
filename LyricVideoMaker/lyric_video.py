@@ -73,7 +73,7 @@ FONT_SETS = {
         "xbold": ("Poppins-ExtraBold.ttf", f"{GOOGLE_FONTS}/poppins/Poppins-ExtraBold.ttf"),
         "giant": ("Anton-Regular.ttf", f"{GOOGLE_FONTS}/anton/Anton-Regular.ttf"),
         "script": ("GreatVibes-Regular.ttf", f"{GOOGLE_FONTS}/greatvibes/GreatVibes-Regular.ttf"),
-        "mono": ("PTSansNarrow-Bold.ttf", f"{GOOGLE_FONTS}/ptsansnarrow/PT_Sans-Narrow-Web-Bold.ttf"),
+        "mono": ("BebasNeue-Regular.ttf", f"{GOOGLE_FONTS}/bebasneue/BebasNeue-Regular.ttf"),
     },
 }
 ARABIC_FORMS = ("isol", "init", "medi", "fina")
@@ -468,8 +468,7 @@ def fill_times(units, start, end):
 
 def build_scene(start, end, body, index):
     flags, opts = set(), {}
-    tag = re.match(r"\s*\{([^}]*)\}", body)
-    if tag:
+    while (tag := re.match(r"\s*\{([^}]*)\}", body)):
         body = body[tag.end():]
         for part in tag.group(1).split(","):
             part = part.strip()
@@ -847,16 +846,18 @@ class Renderer:
 
 
 class MonoRenderer(Renderer):
-    """Black / white flashing lines: condensed words slide in one by one, glow + motion echo on black."""
+    """Pure black / white template with After Effects style word animation:
+    each word pops in (scale overshoot), sharpens from a motion blur and slides into place,
+    the whole line slowly pushes in like a camera, and every new line cuts in with a flash."""
 
-    BLACK, WHITE = (0, 0, 0), (250, 250, 250)
-    INK_ON_WHITE = (68, 68, 68)
-    SLIDE = 0.2
-    COLUMN = 0.34
+    BLACK, WHITE = (0, 0, 0), (255, 255, 255)
+    POP = 0.28          # seconds for a word to land
+    COLUMN = 0.36
 
     def __init__(self, *a, **k):
         super().__init__(*a, **k)
         self._mono = {}
+        self._words = {}
 
     def emphasized(self, scene):
         last = scene.words[-1][1] if scene.words else ""
@@ -866,12 +867,13 @@ class MonoRenderer(Renderer):
         key = (id(scene), self.cy)
         if key in self._mono:
             return self._mono[key]
-        size = int(self.H * 0.1 * (1.7 if self.emphasized(scene) else 1.0) * self.scale)
-        max_w = self.W * self.COLUMN * (1.25 if self.emphasized(scene) else 1.0)
-        words = [(s, shape(w)) for s, w in scene.words]
+        big = self.emphasized(scene)
+        size = int(self.H * (0.27 if big else 0.17) * self.scale)
+        max_w = self.W * self.COLUMN * (1.35 if big else 1.0)
+        words = [(st, shape(w) if scene.rtl else w.upper()) for st, w in scene.words]
         widest = max(self.font("mono", size).getlength(w) for _, w in words)
-        if widest > self.W * 0.8:
-            size = int(size * self.W * 0.8 / widest)
+        if widest > self.W * 0.82:
+            size = int(size * self.W * 0.82 / widest)
         font = self.font("mono", size)
         space = font.getlength(" ")
         lines, line, width = [], [], 0.0
@@ -883,48 +885,68 @@ class MonoRenderer(Renderer):
             line.append((stamp, word, w))
             width += (space if len(line) > 1 else 0) + w
         lines.append((line, width))
-        block_w = max(w for _, w in lines)
-        lh = size * 1.02
+        lh = size * 0.98
         top = self.cy - lh * len(lines) / 2 + lh / 2
         placed = []
-        for row, (line, _) in enumerate(lines):
+        for row, (line, lw) in enumerate(lines):
             y = top + row * lh
             if scene.rtl:
-                x = self.W / 2 + block_w / 2
+                x = self.W / 2 + lw / 2
                 for stamp, word, w in line:
-                    placed.append((stamp, word, x - w, y))
+                    placed.append((stamp, word, x - w / 2, y, w))
                     x -= w + space
             else:
-                x = self.W / 2 - block_w / 2
+                x = self.W / 2 - lw / 2
                 for stamp, word, w in line:
-                    placed.append((stamp, word, x, y))
+                    placed.append((stamp, word, x + w / 2, y, w))
                     x += w + space
         self._mono[key] = (font, placed)
         return font, placed
 
-    def text_mask(self, scene, t, shift=0.0):
+    def word_mask(self, font, word):
+        key = (id(font), word)
+        if key not in self._words:
+            l, t, r, b = font.getbbox(word, anchor="mm")
+            pad = int(font.size * 0.4)
+            im = Image.new("L", (r - l + 2 * pad, b - t + 2 * pad), 0)
+            ImageDraw.Draw(im).text((im.width / 2, im.height / 2), word, font=font, fill=255, anchor="mm")
+            self._words[key] = im
+        return self._words[key]
+
+    def text_mask(self, scene, t):
         font, placed = self.mono_layout(scene)
         mask = Image.new("L", (self.W, self.H), 0)
-        draw = ImageDraw.Draw(mask)
         entry = 1 if scene.rtl else -1
-        for stamp, word, x, y in placed:
+        life = t - scene.start
+        push = 1.0 + 0.05 * ease_out_cubic(clamp(life / max(0.4, scene.end - scene.start)))
+        cx, cy = self.W / 2, self.cy
+        for stamp, word, x, y, w in placed:
             age = t - stamp
             if age < 0:
                 continue
-            p = ease_out_cubic(clamp(age / self.SLIDE))
-            dx = entry * (1 - p) * self.W * 0.045
-            alpha = int(255 * clamp(age / 0.08))
-            draw.text((x + dx + shift, y), word, font=font, fill=alpha, anchor="lm")
+            p = clamp(age / self.POP)
+            sc = (0.55 + 0.45 * ease_out_back(p, 2.2)) * push
+            blur = (1 - ease_out_cubic(p)) * font.size * 0.22
+            dx = entry * (1 - ease_out_cubic(p)) * font.size * 0.9
+            alpha = clamp(age / 0.06)
+            src = self.word_mask(font, word)
+            if abs(sc - 1) > 0.002:
+                src = src.resize((max(1, int(src.width * sc)), max(1, int(src.height * sc))), Image.BILINEAR)
+            if blur > 0.6:
+                src = src.filter(ImageFilter.BoxBlur(blur))
+            if alpha < 1:
+                src = src.point(lambda v, a=alpha: int(v * a))
+            px = cx + (x - cx) * push + dx
+            py = cy + (y - cy) * push
+            box = (int(px - src.width / 2), int(py - src.height / 2))
+            layer = Image.new("L", mask.size, 0)
+            layer.paste(src, box)
+            mask = ImageChops.lighter(mask, layer)
         return mask
-
-    def soft(self, mask, radius):
-        q = 4
-        small = mask.resize((max(1, self.W // q), max(1, self.H // q)), Image.BILINEAR)
-        return small.filter(ImageFilter.GaussianBlur(radius / q)).resize((self.W, self.H), Image.BILINEAR)
 
     def frame(self, scene, t):
         dark = scene.dark
-        bg, ink = (self.BLACK, self.WHITE) if dark else (self.WHITE, self.INK_ON_WHITE)
+        bg, ink = (self.BLACK, self.WHITE) if dark else (self.WHITE, self.BLACK)
         img = Image.new("RGB", (self.W, self.H), bg)
         self.emoji_tint = None if self.original_emoji else ink
         has_emoji = bool(scene.emojis) and scene.mode != "emoji"
@@ -932,18 +954,16 @@ class MonoRenderer(Renderer):
         if scene.emojis and scene.particles:
             self.draw_particles(img, scene, t)
         if scene.words and scene.mode not in ("blank", "emoji"):
-            mask = self.text_mask(scene, t)
-            echo_dir = 1 if scene.rtl else -1
-            echo = self.text_mask(scene, t - 0.09, shift=echo_dir * self.W * 0.04)
-            echo = self.soft(echo, 3 * self.u).point(lambda v: int(v * (0.3 if dark else 0.1)))
-            img.paste(ink, mask=echo)
-            if dark:
-                glow = self.soft(mask, 14 * self.u).point(lambda v: min(255, int(v * 0.95)))
-                img.paste(ink, mask=glow)
+            mask = self.text_mask(scene, t).point(lambda v: 255 if v > 127 else int(v * 2))
             img.paste(ink, mask=mask)
         if scene.emojis:
             self.draw_main_emojis(img, scene, t)
+        if t - scene.start < 0.034:
+            img = ImageChops.invert(img)
         return img
+
+    def paste_emoji(self, img, e, x, y, size, angle, alpha=1.0):
+        super().paste_emoji(img, e, x, y, size, angle, 1.0 if alpha > 0.25 else 0.0)
 
 
 # ---------------------------------------------------------------- encode
